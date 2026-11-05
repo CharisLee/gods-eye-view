@@ -1,0 +1,39 @@
+name: Sync fork with upstream
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge upstream bilawalsidhu/gods-eye-view into this fork
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          for i in 1 2 3; do
+            if out=$(gh api -X POST "repos/${GITHUB_REPOSITORY}/merge-upstream" -f branch="main" 2>&1); then
+              echo "$out"
+              exit 0
+            fi
+            echo "$out"
+            # 仅对 GitHub 侧 5xx / 响应截断重试；409 冲突、422 权限等直接失败
+            if echo "$out" | grep -qE "HTTP 5[0-9][0-9]|unexpected end of JSON|Server Error"; then
+              echo "::warning::第 ${i} 次调用遇到临时错误，30 秒后重试"
+              sleep 30
+              continue
+            fi
+            exit 1
+          done
+          echo "::error::重试 3 次仍失败"
+          exit 1
